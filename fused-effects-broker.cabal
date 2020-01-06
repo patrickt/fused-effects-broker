@@ -1,0 +1,92 @@
+cabal-version:       2.0
+name:                fused-effects-broker
+version:             0.0.0.0
+synopsis:            Brokered asynchronous communication with out-of-band monads
+description:         Brokered asynchronous communication with out-of-band monads
+homepage:            https://github.com/patrickt/fused-effects-broker
+bug-reports:         https://github.com/patrickt/fused-effects-broker/issues
+license:             AllRightsReserved
+author:              Patrick Thomson
+maintainer:          patrick.william.thomson@gmail.com
+copyright:           2020 Patrick Thomson
+category:            Control, Concurrency
+build-type:          Simple
+extra-doc-files:     README.md
+                   , CHANGELOG.md
+tested-with:         GHC == 8.8.1
+
+source-repository head
+  type:                git
+  location:            https://github.com/patrickt/fused-effects-broker.git
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     FusedEffectsBroker
+                       
+
+  build-depends:       base ^>= 4.13.0.0
+                     
+
+  ghc-options:         -Wall
+                       -Wincomplete-uni-patterns
+                       -Wincomplete-record-updates
+                       -Wcompat
+                       -Widentities
+                       -Wredundant-constraints
+                       -fhide-source-paths
+                       -Wmissing-export-lists
+                       -Wpartial-fields
+                       -Wmissing-deriving-strategies
+
+  default-language:    Haskell2010
+
+test-suite fused-effects-broker-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Spec.hs
+
+  build-depends:       base ^>= 4.13.0.0
+                     , fused-effects-broker
+                     
+
+  ghc-options:         -Wall
+                       -threaded
+                       -rtsopts
+                       -with-rtsopts=-N
+                       -Wincomplete-uni-patterns
+                       -Wincomplete-record-updates
+                       -Wcompat
+                       -Widentities
+                       -Wredundant-constraints
+                       -fhide-source-paths
+                       -Wmissing-export-lists
+                       -Wpartial-fields
+                       -Wmissing-deriving-strategies
+
+  default-language:    Haskell2010
+
+benchmark fused-effects-broker-benchmark
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      benchmark
+  main-is:             Main.hs
+
+  build-depends:       base ^>= 4.13.0.0
+                     , gauge
+                     , fused-effects-broker
+                     
+
+  ghc-options:         -Wall
+                       -threaded
+                       -rtsopts
+                       -with-rtsopts=-N
+                       -Wincomplete-uni-patterns
+                       -Wincomplete-record-updates
+                       -Wcompat
+                       -Widentities
+                       -Wredundant-constraints
+                       -fhide-source-paths
+                       -Wmissing-export-lists
+                       -Wpartial-fields
+                       -Wmissing-deriving-strategies
+
+  default-language:    Haskell2010
