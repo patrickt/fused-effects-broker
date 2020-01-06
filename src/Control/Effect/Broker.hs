@@ -22,35 +22,32 @@ import Data.Kind (Type)
 
 type ActorM r = ReaderC r (LiftC STM)
 
-type ActorId = ThreadId
+type ActorId r = ThreadId
 
 -- type family Message r :: Type -> Type
 
 data SomeMessage msg = forall a . SomeMessage (msg a)
 
 data Broker r (msg :: Type -> Type) m k
-  = Register r (SomeMessage msg -> ActorM r r) (ActorId -> m k)
-  | Kill ActorId (m k)
-  | Broadcast ActorId (msg ()) (m k)
-  | forall a . Message ActorId (TMVar a -> msg a) (TMVar a -> m k)
+  = Register r (SomeMessage msg -> ActorM r r) (ActorId r -> m k)
+  | Broadcast (ActorId r) (msg ()) (m k)
+  | forall a . Message (ActorId r) (TMVar a -> msg a) (TMVar a -> m k)
 
 instance HFunctor (Broker r msg) where
   hmap f (Register r act k) = Register r act (f . k)
-  hmap f (Kill i k) = Kill i (f k)
   hmap f (Broadcast i m k) = Broadcast i m (f k)
   hmap f (Message i go k) = Message i go (f . k)
 
-register :: forall r msg sig m . Has (Broker r msg) sig m => r -> (SomeMessage msg -> ActorM r r) -> m ActorId
+register :: forall r msg sig m . Has (Broker r msg) sig m => r -> (SomeMessage msg -> ActorM r r) -> m (ActorId r)
 register initial act = send (Register initial act pure)
 
-
-broadcast :: forall r msg sig m . Has (Broker r msg) sig m => ActorId -> msg () -> m ()
+broadcast :: forall r msg sig m . Has (Broker r msg) sig m => ActorId r -> msg () -> m ()
 broadcast i m = send @(Broker r msg) (Broadcast i m (pure ()))
 
-message :: forall r msg sig m a . Has (Broker r msg) sig m => ActorId -> (TMVar a -> msg a) -> m (TMVar a)
+message :: forall r msg sig m a . Has (Broker r msg) sig m => ActorId r -> (TMVar a -> msg a) -> m (TMVar a)
 message i act = send @(Broker r msg) (Message i act pure)
 
-messageSync :: forall r msg sig m a . (MonadIO m, Has (Broker r msg) sig m) => ActorId -> (TMVar a -> msg a) -> m a
+messageSync :: forall r msg sig m a . (MonadIO m, Has (Broker r msg) sig m) => ActorId r -> (TMVar a -> msg a) -> m a
 messageSync i act = do
   item <- message @r i act
   liftIO (atomically (readTMVar item))
