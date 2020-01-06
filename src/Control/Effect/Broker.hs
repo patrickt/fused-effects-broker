@@ -29,19 +29,19 @@ type ActorId = ThreadId
 data SomeMessage msg = forall a . SomeMessage (msg a)
 
 data Broker r (msg :: Type -> Type) m k
-  = Register (SomeMessage msg -> ActorM r r) (ActorId -> m k)
+  = Register r (SomeMessage msg -> ActorM r r) (ActorId -> m k)
   | Kill ActorId (m k)
   | Broadcast ActorId (msg ()) (m k)
   | forall a . Message ActorId (TMVar a -> msg a) (TMVar a -> m k)
 
 instance HFunctor (Broker r msg) where
-  hmap f (Register act k) = Register act (f . k)
+  hmap f (Register r act k) = Register r act (f . k)
   hmap f (Kill i k) = Kill i (f k)
   hmap f (Broadcast i m k) = Broadcast i m (f k)
   hmap f (Message i go k) = Message i go (f . k)
 
-register :: forall r msg sig m . Has (Broker r msg) sig m => (SomeMessage msg -> ActorM r r) -> m ActorId
-register act = send (Register act pure)
+register :: forall r msg sig m . Has (Broker r msg) sig m => r -> (SomeMessage msg -> ActorM r r) -> m ActorId
+register initial act = send (Register initial act pure)
 
 
 broadcast :: forall r msg sig m . Has (Broker r msg) sig m => ActorId -> msg () -> m ()

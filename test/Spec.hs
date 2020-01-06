@@ -8,7 +8,9 @@ import Control.Concurrent.STM.TMVar
 import Control.Effect.Lift
 import Control.Effect.Reader
 import Control.Monad.IO.Class
+import Data.Foldable
 import Data.Kind (Type)
+import Data.Traversable
 import Debug.Trace
 
 data PingPong = PingPong Int
@@ -22,9 +24,8 @@ instance Show (PMsg a) where
   show (Count _) = "count"
 
 main :: IO ()
-main = runBroker @IO @PingPong @PMsg (PingPong 0) $ do
-  x <- register @PingPong @PMsg $ \(SomeMessage e) -> do
-    traceShowM e
+main = runBroker @_ @PingPong @PMsg (PingPong 0) $ do
+  [x, y] <- for [0..1] $ \n -> register (PingPong n) $ \(SomeMessage e) -> do
     PingPong p <- ask
     case e of
       Ping -> pure (PingPong (p + 1))
@@ -32,5 +33,9 @@ main = runBroker @IO @PingPong @PMsg (PingPong 0) $ do
         sendM (putTMVar x p)
         pure (PingPong p)
 
-  broadcast @PingPong x Ping
-  messageSync @PingPong x Count >>= liftIO . print
+  for_ [0..4] $ \_ -> do
+    broadcast @PingPong x Ping
+    messageSync @PingPong x Count >>= liftIO . print
+
+  broadcast @PingPong y Ping
+  messageSync @PingPong y Count >>= liftIO . print
