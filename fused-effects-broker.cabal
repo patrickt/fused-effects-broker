@@ -21,11 +21,16 @@ source-repository head
 
 library
   hs-source-dirs:      src
-  exposed-modules:     FusedEffectsBroker
-                       
+  exposed-modules:     Control.Effect.Broker
+                     , Control.Carrier.Broker.STM
+
 
   build-depends:       base ^>= 4.13.0.0
-                     
+                     , containers ^>= 0.6
+                     , fused-effects ^>= 1
+                     , unagi-chan ^>= 0.4.1
+                     , stm ^>= 2.5
+
 
   ghc-options:         -Wall
                        -Wincomplete-uni-patterns
@@ -47,7 +52,9 @@ test-suite fused-effects-broker-test
 
   build-depends:       base ^>= 4.13.0.0
                      , fused-effects-broker
-                     
+                     , fused-effects
+                     , stm
+
 
   ghc-options:         -Wall
                        -threaded
@@ -73,7 +80,7 @@ benchmark fused-effects-broker-benchmark
   build-depends:       base ^>= 4.13.0.0
                      , gauge
                      , fused-effects-broker
-                     
+
 
   ghc-options:         -Wall
                        -threaded
