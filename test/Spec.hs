@@ -9,6 +9,7 @@ import Control.Effect.Lift
 import Control.Effect.Reader
 import Control.Monad.IO.Class
 import Data.Kind (Type)
+import Debug.Trace
 
 data PingPong = PingPong Int
 
@@ -16,18 +17,20 @@ data PMsg :: Type -> Type where
   Ping  :: PMsg ()
   Count :: TMVar Int -> PMsg Int
 
-type instance Message PingPong = PMsg
-
+instance Show (PMsg a) where
+  show Ping      = "ping"
+  show (Count _) = "count"
 
 main :: IO ()
-main = runBroker (PingPong 0) $ do
-  x <- register @PingPong $ \e -> do
+main = runBroker @IO @PingPong @PMsg (PingPong 0) $ do
+  x <- register @PingPong @PMsg $ \(SomeMessage e) -> do
+    traceShowM e
     PingPong p <- ask
     case e of
       Ping -> pure (PingPong (p + 1))
       Count x -> do
-        sendM (swapTMVar x p)
+        sendM (putTMVar x p)
         pure (PingPong p)
 
-
   broadcast @PingPong x Ping
+  messageSync @PingPong x Count >>= liftIO . print
