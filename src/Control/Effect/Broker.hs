@@ -4,9 +4,9 @@
 module Control.Effect.Broker
   ( Broker (..)
   , SomeMessage (..)
-  , ActorM
+  , ListenerM
   , register
-  , ActorId
+  , ListenerId
   , broadcast
   , message
   , messageSync
@@ -20,35 +20,53 @@ import Control.Concurrent.STM
 import Control.Monad.IO.Class
 import Data.Kind (Type)
 
-type ActorM r = ReaderC r (LiftC STM)
+-- Listeners have access to a context 'r' and an STM environment.
+-- Listeners never update their context manually: each message handler
+-- introduced with 'register' ends up returning a new 'r' value.
+type ListenerM r = ReaderC r (LiftC STM)
 
-type ActorId r = ThreadId
+-- Each actor is associated with one owner.
+type ListenerId r = ThreadId
 
--- type family Message r :: Type -> Type
-
+-- All messages are GADTs, to provide measures of type safety
+-- when passing transactional variables across process bounds.
+-- For this reason, we have to have an existential hider.
 data SomeMessage msg = forall a . SomeMessage (msg a)
 
+-- The type of event broking interactions.
 data Broker r (msg :: Type -> Type) m k
-  = Register r (SomeMessage msg -> ActorM r r) (ActorId r -> m k)
-  | Broadcast (ActorId r) (msg ()) (m k)
-  | forall a . Message (ActorId r) (TMVar a -> msg a) (TMVar a -> m k)
+  = Register r (SomeMessage msg -> ListenerM r r) (ListenerId r -> m k)
+  | forall a . Message (ListenerId r) (TMVar a -> msg a) (TMVar a -> m k)
 
 instance HFunctor (Broker r msg) where
   hmap f (Register r act k) = Register r act (f . k)
-  hmap f (Broadcast i m k) = Broadcast i m (f k)
   hmap f (Message i go k) = Message i go (f . k)
 
-register :: forall r msg sig m . Has (Broker r msg) sig m => r -> (SomeMessage msg -> ActorM r r) -> m (ActorId r)
+-- Registering a new listening involves providing an initial actor state
+-- and an ListenerM handler that will be run infinitely on that state.
+register ::
+  forall r msg sig m .
+  ( Has (Broker r msg) sig m )
+  => r
+  -> (SomeMessage msg -> ListenerM r r)
+  -> m (ListenerId r)
 register initial act = send (Register initial act pure)
 
-broadcast :: forall r msg sig m . Has (Broker r msg) sig m => ActorId r -> msg () -> m ()
-broadcast i m = send @(Broker r msg) (Broadcast i m (pure ()))
-
-message :: forall r msg sig m a . Has (Broker r msg) sig m => ActorId r -> (TMVar a -> msg a) -> m (TMVar a)
+-- Communication across process boundaries involves communicating with TMVars.
+-- To send a message, you provide a function that expects a TMVar and returns a message type.
+-- A TMVar is allocated for you, passed into that function, and the resulting message is sent
+-- across the process boundary.
+--
+-- It is your responsibility to ensure that handlers write to all TMVars from which results are required.
+message :: forall r msg sig m a . Has (Broker r msg) sig m => ListenerId r -> (TMVar a -> msg a) -> m (TMVar a)
 message i act = send @(Broker r msg) (Message i act pure)
 
-messageSync :: forall r msg sig m a . (MonadIO m, Has (Broker r msg) sig m) => ActorId r -> (TMVar a -> msg a) -> m a
+-- A helper for the simple case where we want to send a message and read from its result TMVar immediately.
+messageSync :: forall r msg sig m a . (MonadIO m, Has (Broker r msg) sig m) => ListenerId r -> (TMVar a -> msg a) -> m a
 messageSync i act = do
   item <- message @r i act
   liftIO (atomically (readTMVar item))
 
+-- A helper for messages that need no reply.
+broadcast :: forall r msg sig m . Has (Broker r msg) sig m => ListenerId r -> msg () -> m ()
+broadcast i m = send @(Broker r msg) (Message i (const m) (const (pure ())))
