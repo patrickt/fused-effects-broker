@@ -1,4 +1,4 @@
-{-# LANGUAGE DefaultSignatures, DerivingStrategies, ExistentialQuantification, FlexibleInstances,
+{-# LANGUAGE BlockArguments, DefaultSignatures, DerivingStrategies, ExistentialQuantification, FlexibleInstances,
              GeneralizedNewtypeDeriving, MultiParamTypeClasses, RankNTypes, ScopedTypeVariables, TypeApplications,
              TypeOperators, UndecidableInstances #-}
 
@@ -42,29 +42,30 @@ runBroker (BrokerC go) = do
   state <- liftIO $ newTVarIO Map.empty
   runReader (BrokerEnv state) go
 
+atomically' :: MonadIO m => STM a -> m a
+atomically' = liftIO . atomically
+
 instance forall r msg sig m . (MonadIO m, Algebra sig m) => Algebra (Broker r msg :+: sig) (BrokerC r msg m) where
   alg (L item) = do
-    env <- BrokerC (ask @(BrokerEnv r msg))
+    env <- BrokerC (asks @(BrokerEnv r msg) clients)
     case item of
-      Register initial act k -> k =<< liftIO (do
+      Register initial act k -> k =<< liftIO do
         queue <- Chan.newTBChanIO brokerQueueSize
-        box   <- newTMVarIO initial
-        self  <- forkIO . forever . atomically $ do
+        box <- newTMVarIO initial
+        self <- forkIO . forever . atomically $ do
           SomeMessage msg receptacle <- Chan.readTBChan queue
           state <- takeTMVar box
           (new, result) <- runM . runState state . act $ msg
           putTMVar box new
           putTMVar receptacle result
 
-        atomically . modifyTVar' (clients env) . Map.insert self $ ChanConnection queue self
-        pure self)
-      Message i reply k -> k =<< liftIO (atomically $ do
-        traceM "processing message"
-        members   <- readTVar (clients env)
-        result    <- newEmptyTMVar
-        case Map.lookup i members of
-          Nothing -> pure ()
-          Just x  -> Chan.writeTBChan (sendChan x) (SomeMessage reply result)
-        pure result)
+        atomically . modifyTVar' env . Map.insert self $ ChanConnection queue self
+        pure self
+      Message i msg k -> k =<< atomically' do
+        members <- readTVar env
+        outbox <- newEmptyTMVar
+        outbox <$ case Map.lookup i members of
+          Nothing -> error "Invalid message handle"
+          Just x  -> Chan.writeTBChan (sendChan x) (SomeMessage msg outbox)
 
   alg (R other) = BrokerC (alg (R (handleCoercible other)))
