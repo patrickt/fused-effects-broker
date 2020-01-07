@@ -1,8 +1,9 @@
-{-# LANGUAGE BlockArguments, GADTs, TypeApplications, TypeFamilies #-}
+{-# LANGUAGE BlockArguments, GADTs, StandaloneDeriving, TypeApplications, TypeFamilies #-}
 
 module Main (main) where
 
 import Control.Carrier.Broker.STM
+import Control.Carrier.State.Strict
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TMVar
 import Control.Effect.Lift
@@ -17,42 +18,35 @@ data PingPong = PingPong Int
 
 data PMsg :: Type -> Type where
   Ping  :: PMsg ()
-  Count :: TMVar Int -> PMsg Int
+  Count :: PMsg Int
 
-instance Show (PMsg a) where
-  show Ping      = "ping"
-  show (Count _) = "count"
+deriving instance Show (PMsg a)
 
 data BlackBox = BlackBox String
 
 data BMsg :: Type -> Type where
   Update :: String -> BMsg ()
-  View :: TMVar String -> BMsg String
+  View :: BMsg String
 
 main :: IO ()
 main = runBroker @PingPong @PMsg $ runBroker @BlackBox @BMsg $ do
-  [x, y] <- for [0..1] $ \n -> register (PingPong n) $ \(SomeMessage e) -> do
-    PingPong p <- ask
+  [x, y] <- for [0..1] $ \n -> register (PingPong n) $ \e -> do
+    PingPong p <- get
     case e of
-      Ping -> pure (PingPong (p + 1))
-      Count x -> do
-        sendM (putTMVar x p)
-        pure (PingPong p)
+      Ping  -> put (PingPong (p + 1))
+      Count -> pure p
 
-  sign <- register (BlackBox "hello") $ \(SomeMessage e) -> do
-    BlackBox s <- ask
+  sign <- register (BlackBox "hello") $ \e -> do
+    BlackBox s <- get
     case e of
-      Update new -> pure (BlackBox new)
-      View t -> do
-        sendM (putTMVar t s)
-        ask
+      Update new -> put (BlackBox new)
+      View       -> pure s
 
-  for_ [0..4] $ \_ -> do
-    broadcast @PingPong x Ping
-    messageSync @PingPong x Count >>= liftIO . print
+  -- for_ [0..4] $ \_ -> do
+  --   broadcast @PingPong x Ping
+  --   message @PingPong x Count
 
-  broadcast @PingPong y Ping
   messageSync @PingPong y Count >>= liftIO . print
 
-  broadcast @BlackBox sign (Update "world")
-  messageSync @BlackBox sign View >>= liftIO . print
+  -- broadcast @BlackBox sign (Update "world")
+  -- messageSync @BlackBox sign View >>= liftIO . print

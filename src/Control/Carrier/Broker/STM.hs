@@ -11,18 +11,19 @@ module Control.Carrier.Broker.STM
 import           Control.Algebra
 import           Control.Carrier.Lift
 import           Control.Carrier.Reader
+import           Control.Carrier.State.Strict
 import           Control.Concurrent (forkIO)
-import qualified Control.Concurrent.Chan.Unagi.Bounded as Chan
 import           Control.Concurrent.STM
+import qualified Control.Concurrent.STM.TBChan as Chan
 import           Control.Effect.Broker
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-
+import           Debug.Trace
 
 data ChanConnection r msg = ChanConnection
-  { sendChan :: Chan.InChan (SomeMessage msg)
+  { sendChan :: Chan.TBChan (SomeMessage msg)
   , _self    :: ListenerId r
   }
 
@@ -33,6 +34,9 @@ data BrokerEnv r msg = BrokerEnv
 newtype BrokerC r msg m a = BrokerC (ReaderC (BrokerEnv r msg) m a)
   deriving newtype (Functor, Applicative, Monad, MonadFail, MonadIO)
 
+brokerQueueSize :: Int
+brokerQueueSize = 512
+
 runBroker :: forall r msg m a . MonadIO m => BrokerC r msg m a -> m a
 runBroker (BrokerC go) = do
   state <- liftIO $ newTVarIO Map.empty
@@ -42,25 +46,25 @@ instance forall r msg sig m . (MonadIO m, Algebra sig m) => Algebra (Broker r ms
   alg (L item) = do
     env <- BrokerC (ask @(BrokerEnv r msg))
     case item of
-      Register initial act k -> do
-        boxed <- liftIO $ newTVarIO initial
-        (inch, ouch) <- liftIO $ Chan.newChan 512
-        self <- liftIO . forkIO . forever $ do
-          msg <- Chan.readChan ouch
-          atomically $ do
-            v <- readTVar boxed
-            result <- runM $ runReader v (act msg)
-            writeTVar boxed result
+      Register initial act k -> k =<< liftIO (do
+        queue <- Chan.newTBChanIO brokerQueueSize
+        box   <- newTMVarIO initial
+        self  <- forkIO . forever . atomically $ do
+          SomeMessage msg receptacle <- Chan.readTBChan queue
+          state <- takeTMVar box
+          (new, result) <- runM . runState state . act $ msg
+          putTMVar box new
+          putTMVar receptacle result
 
-        let conn = ChanConnection inch self
-        liftIO . atomically . modifyTVar' (clients env) . Map.insert self $ conn
-        k self
-      Message i reply k -> do
-        container <- liftIO . atomically $ newEmptyTMVar
-        members <- liftIO . readTVarIO . clients $ env
-        liftIO $ case Map.lookup i members of
-          Nothing -> putStrLn "Warning: Couldn't find item to which to broadcast"
-          Just x  -> Chan.writeChan (sendChan x) (SomeMessage (reply container))
-        k container
+        atomically . modifyTVar' (clients env) . Map.insert self $ ChanConnection queue self
+        pure self)
+      Message i reply k -> k =<< liftIO (atomically $ do
+        traceM "processing message"
+        members   <- readTVar (clients env)
+        result    <- newEmptyTMVar
+        case Map.lookup i members of
+          Nothing -> pure ()
+          Just x  -> Chan.writeTBChan (sendChan x) (SomeMessage reply result)
+        pure result)
 
   alg (R other) = BrokerC (alg (R (handleCoercible other)))

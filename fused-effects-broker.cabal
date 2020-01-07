@@ -28,8 +28,8 @@ library
   build-depends:       base ^>= 4.13.0.0
                      , containers ^>= 0.6
                      , fused-effects ^>= 1
-                     , unagi-chan ^>= 0.4.1
                      , stm ^>= 2.5
+                     , stm-chans ^>= 3
 
 
   ghc-options:         -Wall
